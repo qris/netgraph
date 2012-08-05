@@ -48,64 +48,94 @@
 
 using namespace cgicc;
 
-/*
-static int
-list_entries(const xt_chainlabel chain, int rulenum, int verbose,
-	int numeric, int expanded, int linenumbers, 
-	struct xtc_handle *handle)
+static void
+print_header(struct xtc_handle *handle, const char *chain, 
+	JsonBuilder *builder)
 {
-	int found = 0;
-	unsigned int format;
-	const char *this;
+	struct xt_counters counters;
 
-	format = FMT_OPTIONS;
-	if (!verbose)
-		format |= FMT_NOCOUNTS;
+	const char *pol = iptc_get_policy(chain, &counters, handle);
+	if (pol)
+	{
+		json_builder_set_member_name(builder, "type");
+		json_builder_add_string_value(builder, "builtin");
+
+		json_builder_set_member_name(builder, "policy");
+		json_builder_add_string_value(builder, pol);
+		
+		json_builder_set_member_name(builder, "packets");
+		json_builder_add_int_value(builder, counters.pcnt);
+
+		json_builder_set_member_name(builder, "bytes");
+		json_builder_add_int_value(builder, counters.bcnt);
+	}
 	else
-		format |= FMT_VIA;
+	{
+		json_builder_set_member_name(builder, "type");
+		json_builder_add_string_value(builder, "user");
 
-	if (numeric)
-		format |= FMT_NUMERIC;
+		unsigned int refs;
+		if (iptc_get_references(&refs, chain, handle))
+		{
+			json_builder_set_member_name(builder, "refs");
+			json_builder_add_int_value(builder, refs);
+		}
+	}
+}
 
-	if (!expanded)
-		format |= FMT_KILOMEGAGIGA;
+static bool
+list_entries(struct xtc_handle *handle, const xt_chainlabel list_chain,
+	JsonBuilder *builder)
+{
+	bool found = false;
+	const char *this_chain;
 
-	if (linenumbers)
-		format |= FMT_LINENUMBERS;
+	json_builder_set_member_name(builder, "chains");
+	json_builder_begin_object(builder);
 
-	for (this = iptc_first_chain(handle);
-	     this;
-	     this = iptc_next_chain(handle)) {
+	for (this_chain = iptc_first_chain(handle);
+	     this_chain;
+	     this_chain = iptc_next_chain(handle))
+	{
 		const struct ipt_entry *i;
 		unsigned int num;
 
-		if (chain && strcmp(chain, this) != 0)
+		if (list_chain && strcmp(list_chain, this_chain) != 0)
 			continue;
 
-		if (found) printf("\n");
+		json_builder_set_member_name(builder, this_chain);
+		json_builder_begin_object(builder);
+		print_header(handle, this_chain, builder);
 
-		if (!rulenum)
-			print_header(format, this, handle);
-		i = iptc_first_rule(this, handle);
-
-		num = 0;
-		while (i) {
-			num++;
-			if (!rulenum || num == rulenum)
-				print_firewall(i,
-					       iptc_get_target(i, handle),
-					       num,
-					       format,
-					       handle);
+		json_builder_set_member_name(builder, "rules");
+		json_builder_begin_array(builder);
+		
+		i = iptc_first_rule(this_chain, handle);
+		int rule_num = 0;
+		
+		while (i)
+		{
+			rule_num++;
+			/*
+			print_firewall(i,
+				iptc_get_target(i, handle),
+				num,
+				format,
+				handle);
+			*/
 			i = iptc_next_rule(i, handle);
 		}
-		found = 1;
+		
+		json_builder_end_array(builder); // rules
+		json_builder_end_object(builder); // this_chain
+		found = true;
 	}
 
-	errno = ENOENT;
+	json_builder_end_object(builder);
+
+	errno = found ? 0 : ENOENT;
 	return found;
 }
-*/
 
 class netgraph_exception : public std::exception
 {
@@ -134,7 +164,6 @@ class netgraph_exception : public std::exception
 int
 main(int argc, char *argv[])
 {
-	int ret;
 	const char *table = "filter";
 	const char *chain = NULL;
 	struct xtc_handle *handle = NULL;
@@ -193,8 +222,8 @@ main(int argc, char *argv[])
 		}
 
 		iptables_globals.program_name = argv[0];
-		ret = xtables_init_all(&iptables_globals, NFPROTO_IPV4);
-		if (ret < 0)
+		int ret = xtables_init_all(&iptables_globals, NFPROTO_IPV4);
+		if (ret != 0)
 		{
 			THROW(netgraph_exception, "failed to initialize xtables");
 		}
@@ -212,11 +241,11 @@ main(int argc, char *argv[])
 				"table '" << table << "': " << iptc_strerror(errno));
 		}
 	
-		// ret = list_entries(chain, handle);
+		bool success = list_entries(handle, chain, builder);
 
-		if (ret)
+		if (success)
 		{
-			ret = iptc_commit(handle);
+			// iptc_commit(handle);
 			iptc_free(handle);
 		}
 		else
