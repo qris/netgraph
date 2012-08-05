@@ -6,3 +6,17 @@ configure
 depcomp
 install-sh
 missing
+.deps
+.libs
+Makefile
+autom4te.cache
+config.guess
+config.h
+config.status
+config.sub
+libtool
+ltmain.sh
+netgraph-server
+*~
+*.o
+stamp-h1

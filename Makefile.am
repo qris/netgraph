@@ -4,12 +4,12 @@ AM_CFLAGS        = ${regular_CFLAGS}
 AM_CPPFLAGS      = ${regular_CPPFLAGS} -I${top_builddir}/include \
 	-I${top_srcdir}/iptables/include \
 	${kinclude_CPPFLAGS} \
-	${JSON_GLIB_CFLAGS} ${GLIB_CFLAGS}
+	${JSON_GLIB_CFLAGS} ${GLIB_CFLAGS} ${CGICC_CFLAGS}
 
-netgraph_server_SOURCES = netgraph-server.c
+netgraph_server_SOURCES = netgraph-server.cc
 netgraph_server_CFLAGS  = ${AM_CFLAGS}
 netgraph_server_LDADD   = iptables/libxtables/libxtables.la -lm \
-	${JSON_GLIB_LIBS} ${GLIB_LIBS}
+	${JSON_GLIB_LIBS} ${GLIB_LIBS} ${CGICC_LIBS}
 
 if ENABLE_IPV4
 netgraph_server_CFLAGS  += -DENABLE_IPV4

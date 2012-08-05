@@ -1,6 +1,7 @@
-AC_INIT([netgraph], [1.1], [chris-netgraph@qwirx.com])
+AC_INIT([NetGraph], [1.1], [chris-netgraph@qwirx.com], [netgraph], [http://github.com/qris/netgraph])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_PROG_CC
+AC_PROG_CXX
 AM_PROG_LIBTOOL
 
 AC_ARG_ENABLE([ipv4],
@@ -15,6 +16,7 @@ AM_CONDITIONAL([ENABLE_IPV6], [test "$enable_ipv6" = "yes"])
 
 PKG_CHECK_MODULES([GLIB], [glib-2.0])
 PKG_CHECK_MODULES([JSON_GLIB], [json-glib-1.0])
+PKG_CHECK_MODULES([CGICC], [cgicc])
 
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_SUBDIRS([iptables])

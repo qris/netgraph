@@ -37,8 +37,16 @@
 #include <string.h>
 #include <iptables.h>
 
+#include <memory>
+#include <sstream>
+
 #include <glib-object.h>
 #include <json-glib/json-glib.h>
+
+#include <cgicc/Cgicc.h>
+#include "cgicc/HTTPResponseHeader.h"
+
+using namespace cgicc;
 
 /*
 static int
@@ -99,6 +107,30 @@ list_entries(const xt_chainlabel chain, int rulenum, int verbose,
 }
 */
 
+class netgraph_exception : public std::exception
+{
+	private:
+	std::string message;
+	
+	public:
+	netgraph_exception(const std::string& rMessage)
+	: message(rMessage)
+	{ }
+	virtual ~netgraph_exception() throw () { }
+	
+	virtual const char* what() const throw ()
+	{
+		return message.c_str();
+	}
+};
+
+#define THROW(class, stuff) \
+{ \
+	std::ostringstream __out; \
+	__out << stuff; \
+	throw class(__out.str()); \
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -106,36 +138,38 @@ main(int argc, char *argv[])
 	const char *table = "filter";
 	const char *chain = NULL;
 	struct xtc_handle *handle = NULL;
+	int http_status_code = 500;
 	
 	g_type_init();
-
-	iptables_globals.program_name = "iptables";
-	ret = xtables_init_all(&iptables_globals, NFPROTO_IPV4);
-	if (ret < 0) {
-		fprintf(stderr, "%s/%s Failed to initialize xtables\n",
-				iptables_globals.program_name,
-				iptables_globals.program_version);
-				exit(1);
-	}
-#if defined(ALL_INCLUSIVE) || defined(NO_SHARED_LIBS)
-	init_extensions();
-	init_extensions4();
-#endif
-
-	xtables_load_ko(xtables_modprobe_program, false);
-	handle = iptc_init(table);
-	if (!handle)
-	{
-		xtables_error(VERSION_PROBLEM,
-			   "can't initialize iptables table `%s': %s",
-			   table, iptc_strerror(errno));
-	}
 	
+	std::auto_ptr<Cgicc> apCgi;
+	
+	try
+	{
+		apCgi.reset(new Cgicc());
+	}
+	catch(std::exception& e)
+	{
+		fprintf(stderr, "Failed to initialize Cgicc: %s\n", e.what());
+		exit(1);
+	}
+
+	std::string server_string = 
+		std::string(PACKAGE_NAME "/" PACKAGE_VERSION) +
+		" (GNU cgicc/" + apCgi->getVersion() + ")";
+	std::ostream* pOut = &(std::cout);
+	bool isCommandLine = true;
+
+	// If we're a CGI, we should be ready to output JSON, whatever
+	// happens next.
 	JsonBuilder *builder = json_builder_new();
 	json_builder_begin_object(builder);
 
+	json_builder_set_member_name(builder, "protocol");
+	json_builder_add_string_value(builder, PACKAGE_NAME);
+
 	json_builder_set_member_name(builder, "app");
-	json_builder_add_string_value(builder, "https://github.com/qris/netgraph");
+	json_builder_add_string_value(builder, PACKAGE_URL);
 
 	json_builder_set_member_name(builder, "version");
 	json_builder_begin_array(builder);
@@ -143,29 +177,86 @@ main(int argc, char *argv[])
 	json_builder_add_int_value(builder, 1);
 	json_builder_end_array(builder);
 	
-	// ret = list_entries(chain, handle);
+	try
+	{
+		std::string env = apCgi->getEnvironment().getGatewayInterface();
+	
+		if (env == "")
+		{
+			// looks like command-line usage
+			isCommandLine = true;
+		}
+		else
+		{
+			// looks like a CGI invocation
+			isCommandLine = false;
+		}
 
+		iptables_globals.program_name = argv[0];
+		ret = xtables_init_all(&iptables_globals, NFPROTO_IPV4);
+		if (ret < 0)
+		{
+			THROW(netgraph_exception, "failed to initialize xtables");
+		}
+	
+#if defined(ALL_INCLUSIVE) || defined(NO_SHARED_LIBS)
+		init_extensions();
+		init_extensions4();
+#endif
+
+		xtables_load_ko(xtables_modprobe_program, false);
+		handle = iptc_init(table);
+		if (!handle)
+		{
+			THROW(netgraph_exception, "failed to initialize iptables "
+				"table '" << table << "': " << iptc_strerror(errno));
+		}
+	
+		// ret = list_entries(chain, handle);
+
+		if (ret)
+		{
+			ret = iptc_commit(handle);
+			iptc_free(handle);
+		}
+		else
+		{
+			if (errno == EINVAL) {
+				fprintf(stderr, "iptables: %s. "
+						"Run `dmesg' for more information.\n",
+					iptc_strerror(errno));
+			} else {
+				fprintf(stderr, "iptables: %s.\n",
+					iptc_strerror(errno));
+			}
+			if (errno == EAGAIN) {
+				exit(RESOURCE_PROBLEM);
+			}
+		}
+
+		http_status_code = 200; // success!
+	}
+	catch (std::exception &e)
+	{
+		if (isCommandLine)
+		{
+			// print the error message and die quickly
+			std::cerr << PACKAGE_NAME << ": " << e.what() << std::endl;
+			exit(1);
+		}
+		else
+		{
+			// continue to render a well-formed JSON output
+			json_builder_set_member_name(builder, "error");
+			json_builder_add_string_value(builder, e.what());
+		}
+	}
+	
+	// If we got here, we've either successfully processed the
+	// request, or we've got an error that needs to be sent as
+	// valid JSON. Either way, we must build a well-formed response.
+	
 	json_builder_end_object(builder);
-
-	if (ret)
-	{
-		ret = iptc_commit(handle);
-		iptc_free(handle);
-	}
-	else
-	{
-		if (errno == EINVAL) {
-			fprintf(stderr, "iptables: %s. "
-					"Run `dmesg' for more information.\n",
-				iptc_strerror(errno));
-		} else {
-			fprintf(stderr, "iptables: %s.\n",
-				iptc_strerror(errno));
-		}
-		if (errno == EAGAIN) {
-			exit(RESOURCE_PROBLEM);
-		}
-	}
 
 	JsonGenerator *gen = json_generator_new();
 	JsonNode * root = json_builder_get_root(builder);
@@ -175,8 +266,14 @@ main(int argc, char *argv[])
 	json_node_free(root);
 	g_object_unref(gen);
 	g_object_unref(builder);
-	
-	puts(str);
 
-	exit(!ret);
+	// Tell the server not to parse our headers
+	*pOut << HTTPResponseHeader("HTTP/1.1", http_status_code,
+		http_status_code == 200 ? "OK" : "Application Error")
+		// .addHeader("Date", current_date)
+		.addHeader("Server", server_string)
+		.addHeader("Content-Type", "application/json")
+		<< str;
+	
+	exit(http_status_code == 200 ? 0 : 1);
 }
