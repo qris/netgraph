@@ -1,8 +1,10 @@
 # -*- Makefile -*-
 
 AM_CFLAGS        = ${regular_CFLAGS}
-AM_CPPFLAGS      = ${regular_CPPFLAGS} -I${top_builddir}/include \
+AM_CPPFLAGS      = ${regular_CPPFLAGS} \
+	-I${top_builddir}/include \
 	-I${top_srcdir}/iptables/include \
+	-I${top_srcdir}/iptables/iptables \
 	${kinclude_CPPFLAGS} \
 	${JSON_GLIB_CFLAGS} ${GLIB_CFLAGS} ${CGICC_CFLAGS}
 

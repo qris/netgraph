@@ -35,7 +35,12 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+
+extern "C"
+{
 #include <iptables.h>
+#include "xshared.h"
+}
 
 #include <memory>
 #include <sstream>
@@ -47,6 +52,16 @@
 #include "cgicc/HTTPResponseHeader.h"
 
 using namespace cgicc;
+
+static void
+add_counters(struct xt_counters counters, JsonBuilder *builder)
+{
+	json_builder_set_member_name(builder, "packets");
+	json_builder_add_int_value(builder, counters.pcnt);
+
+	json_builder_set_member_name(builder, "bytes");
+	json_builder_add_int_value(builder, counters.bcnt);
+}
 
 static void
 print_header(struct xtc_handle *handle, const char *chain, 
@@ -63,11 +78,7 @@ print_header(struct xtc_handle *handle, const char *chain,
 		json_builder_set_member_name(builder, "policy");
 		json_builder_add_string_value(builder, pol);
 		
-		json_builder_set_member_name(builder, "packets");
-		json_builder_add_int_value(builder, counters.pcnt);
-
-		json_builder_set_member_name(builder, "bytes");
-		json_builder_add_int_value(builder, counters.bcnt);
+		add_counters(counters, builder);
 	}
 	else
 	{
@@ -81,6 +92,247 @@ print_header(struct xtc_handle *handle, const char *chain,
 			json_builder_add_int_value(builder, refs);
 		}
 	}
+}
+
+static void
+add_interface(bool invert, const std::string& interface_name,
+	const std::string& member_name, JsonBuilder *builder)
+{
+	if (interface_name.length() > 0)
+	{
+		json_builder_set_member_name(builder, member_name.c_str());
+		
+		std::string value;
+		if (invert)
+		{
+			value += '!';
+		}
+		value += interface_name;
+		
+		json_builder_add_string_value(builder, value.c_str());
+	}
+}
+
+static void
+add_ip_details(bool invert, struct in_addr addr, struct in_addr mask,
+	JsonBuilder *builder)
+{
+	json_builder_begin_object(builder);
+
+	if (mask.s_addr != 0L)
+	{
+		json_builder_set_member_name(builder, "invert");
+		json_builder_add_boolean_value(builder, invert);
+	
+		json_builder_set_member_name(builder, "addr");
+		json_builder_add_string_value(builder,
+			xtables_ipaddr_to_numeric(&addr));
+
+		json_builder_set_member_name(builder, "mask");
+		json_builder_add_string_value(builder,
+			xtables_ipmask_to_numeric(&mask));
+	}
+	else
+	{
+		// nothing to see here, move along
+	}
+
+	json_builder_end_object(builder);
+}
+
+static void add_match_udp_port(bool invert, const __u16 ports[2],
+	const std::string& member_name, JsonBuilder *builder)
+{
+	json_builder_set_member_name(builder, member_name.c_str());
+	json_builder_begin_object(builder);
+	
+	if (ports[0] != 0 || ports[1] != 0xFFFF)
+	{
+		if (invert)
+		{
+			json_builder_set_member_name(builder, "invert");
+			json_builder_add_boolean_value(builder, true);
+		}
+		
+		json_builder_set_member_name(builder, "ports");
+		json_builder_begin_array(builder);
+		json_builder_add_int_value(builder, ports[0]);
+		json_builder_add_int_value(builder, ports[1]);
+		json_builder_end_array(builder);
+	}		
+
+	json_builder_end_object(builder);
+}
+
+static void add_match_udp(const void *ip, 
+	const struct xt_entry_match *match,
+	JsonBuilder *builder)
+{
+	const struct xt_udp *udpinfo = (struct xt_udp *)match->data;
+
+	add_match_udp_port(udpinfo->invflags & XT_UDP_INV_SRCPT /* invert */,
+		udpinfo->spts, "sport" /* member_name */, builder);
+
+	add_match_udp_port(udpinfo->invflags & XT_UDP_INV_DSTPT /* invert */,
+		udpinfo->dpts, "dport" /* member_name */, builder);
+}
+
+static int
+add_match(const struct xt_entry_match *m, const struct ipt_ip *ip, 
+	JsonBuilder *builder)
+{
+	const struct xtables_match *match =
+		xtables_find_match(m->u.user.name, XTF_TRY_LOAD, NULL);
+
+	json_builder_set_member_name(builder, m->u.user.name);
+	json_builder_begin_object(builder);
+
+	if (match)
+	{
+		std::string name(match->name);
+		
+		if (name == "udp")
+		{
+			add_match_udp(ip, m, builder);
+		}
+		else
+		{
+			json_builder_set_member_name(builder, "error");
+			json_builder_add_string_value(builder,
+				"Don't know how to decode");
+		}
+	}
+	else
+	{
+		json_builder_set_member_name(builder, "error");
+		json_builder_add_string_value(builder,
+			"Failed to load extension");
+	}
+
+	json_builder_end_object(builder);
+
+	/* Don't stop iterating. */
+	return 0;
+}
+
+static void
+add_rule(struct xtc_handle *const handle,
+	const struct ipt_entry *fw,
+	const char *targname,
+	JsonBuilder *builder)
+{
+	uint8_t flags = fw->ip.flags;
+	
+	json_builder_begin_object(builder);
+	add_counters(fw->counters, builder);
+
+	json_builder_set_member_name(builder, "target");
+	json_builder_add_string_value(builder, targname);
+	
+	std::ostringstream proto;
+	if (fw->ip.invflags & XT_INV_PROTO)
+	{
+		proto << '!';
+	}
+
+	{
+		const char *pname = proto_to_name(fw->ip.proto,
+			0 /* nolookup */);
+		if (pname)
+		{
+			proto << pname;
+		}
+		else
+		{
+			proto << fw->ip.proto;
+		}
+	}
+	
+	json_builder_set_member_name(builder, "proto");
+	json_builder_add_string_value(builder, proto.str().c_str());
+
+	json_builder_set_member_name(builder, "proto");
+	json_builder_add_string_value(builder, proto.str().c_str());
+
+	// If neither flag is set, then this rule doesn't care whether
+	// the fragment flag is set on the packet or not, so omit the
+	// "frag" member entirely to signify that.
+	if (flags & IPT_F_FRAG || fw->ip.invflags & IPT_INV_FRAG)
+	{
+		json_builder_set_member_name(builder, "frag");
+		json_builder_add_boolean_value(builder,
+			!(fw->ip.invflags & IPT_INV_FRAG));
+	}
+
+	add_interface(fw->ip.invflags & IPT_INV_VIA_IN /* invert */,
+		fw->ip.iniface /* interface_name */,
+		"iface_in" /* member_name */, builder);
+		
+	add_interface(fw->ip.invflags & IPT_INV_VIA_OUT /* invert */,
+		fw->ip.outiface /* interface_name */,
+		"iface_out" /* member_name */, builder);
+
+	json_builder_set_member_name(builder, "src");
+	add_ip_details(fw->ip.invflags & IPT_INV_SRCIP /* invert */,
+		fw->ip.src, fw->ip.smsk, builder);
+
+	json_builder_set_member_name(builder, "dst");
+	add_ip_details(fw->ip.invflags & IPT_INV_DSTIP /* invert */,
+		fw->ip.dst, fw->ip.dmsk, builder);
+
+	json_builder_set_member_name(builder, "matches");
+	json_builder_begin_object(builder);
+	IPT_MATCH_ITERATE(fw, add_match, &fw->ip, builder);
+	json_builder_end_object(builder);
+
+	json_builder_set_member_name(builder, "target");
+	json_builder_begin_object(builder);
+
+	json_builder_set_member_name(builder, "name");
+	json_builder_add_string_value(builder, targname);
+
+	const struct xtables_target *target = NULL;
+
+	if (iptc_is_chain(targname, handle))
+	{
+		json_builder_set_member_name(builder, "type");
+		json_builder_add_string_value(builder, "chain");
+		target = xtables_find_target(XT_STANDARD_TARGET,
+		         XTF_LOAD_MUST_SUCCEED);
+	}
+	else
+	{
+		json_builder_set_member_name(builder, "type");
+		json_builder_add_string_value(builder, "builtin");
+		target = xtables_find_target(targname, XTF_TRY_LOAD);
+	}
+
+#ifdef IPT_F_GOTO
+	if(fw->ip.flags & IPT_F_GOTO)
+	{
+		json_builder_set_member_name(builder, "goto");
+		json_builder_add_boolean_value(builder, true);
+	}
+#endif
+
+	const struct xt_entry_target *t = 
+		ipt_get_target((struct ipt_entry *)fw);
+
+	if (target)
+	{
+		json_builder_set_member_name(builder, "error");
+		json_builder_add_string_value(builder,
+			"Don't know how to decode");
+	}
+	else
+	{
+		json_builder_set_member_name(builder, "error");
+		json_builder_add_string_value(builder,
+			"Failed to load extension");
+	}
+	
+	json_builder_end_object(builder); // target
+	json_builder_end_object(builder); // rule
 }
 
 static bool
@@ -116,13 +368,7 @@ list_entries(struct xtc_handle *handle, const xt_chainlabel list_chain,
 		while (i)
 		{
 			rule_num++;
-			/*
-			print_firewall(i,
-				iptc_get_target(i, handle),
-				num,
-				format,
-				handle);
-			*/
+			add_rule(handle, i, iptc_get_target(i, handle), builder);
 			i = iptc_next_rule(i, handle);
 		}
 		
