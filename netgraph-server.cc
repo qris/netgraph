@@ -49,7 +49,8 @@ extern "C"
 #include <json-glib/json-glib.h>
 
 #include <cgicc/Cgicc.h>
-#include "cgicc/HTTPResponseHeader.h"
+#include "cgicc/HTTPStatusHeader.h"
+#include "cgicc/HTTPContentHeader.h"
 
 using namespace cgicc;
 
@@ -549,11 +550,12 @@ main(int argc, char *argv[])
 	g_object_unref(builder);
 
 	// Tell the server not to parse our headers
-	*pOut << HTTPResponseHeader("HTTP/1.1", http_status_code,
-		http_status_code == 200 ? "OK" : "Application Error")
-		// .addHeader("Date", current_date)
-		.addHeader("Server", server_string)
-		.addHeader("Content-Type", "application/json")
+	*pOut << "Status: " << http_status_code << " "
+		<< (http_status_code == 200 ? "OK" : "Application Error")
+		<< std::endl
+		<< "Content/type: application/json"
+		<< std::endl
+		<< std::endl
 		<< str;
 	
 	exit(http_status_code == 200 ? 0 : 1);
