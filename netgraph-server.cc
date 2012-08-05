@@ -64,7 +64,7 @@ add_counters(struct xt_counters counters, JsonBuilder *builder)
 }
 
 static void
-print_header(struct xtc_handle *handle, const char *chain, 
+add_header(struct xtc_handle *handle, const char *chain, 
 	JsonBuilder *builder)
 {
 	struct xt_counters counters;
@@ -128,9 +128,9 @@ add_ip_details(bool invert, struct in_addr addr, struct in_addr mask,
 		json_builder_add_string_value(builder,
 			xtables_ipaddr_to_numeric(&addr));
 
+		uint32_t cidr = xtables_ipmask_to_cidr(&mask);
 		json_builder_set_member_name(builder, "mask");
-		json_builder_add_string_value(builder,
-			xtables_ipmask_to_numeric(&mask));
+		json_builder_add_int_value(builder, cidr);
 	}
 	else
 	{
@@ -218,7 +218,7 @@ add_match(const struct xt_entry_match *m, const struct ipt_ip *ip,
 static void
 add_rule(struct xtc_handle *const handle,
 	const struct ipt_entry *fw,
-	const char *targname,
+	const std::string& target_name,
 	JsonBuilder *builder)
 {
 	uint8_t flags = fw->ip.flags;
@@ -226,9 +226,6 @@ add_rule(struct xtc_handle *const handle,
 	json_builder_begin_object(builder);
 	add_counters(fw->counters, builder);
 
-	json_builder_set_member_name(builder, "target");
-	json_builder_add_string_value(builder, targname);
-	
 	std::ostringstream proto;
 	if (fw->ip.invflags & XT_INV_PROTO)
 	{
@@ -289,11 +286,11 @@ add_rule(struct xtc_handle *const handle,
 	json_builder_begin_object(builder);
 
 	json_builder_set_member_name(builder, "name");
-	json_builder_add_string_value(builder, targname);
+	json_builder_add_string_value(builder, target_name.c_str());
 
 	const struct xtables_target *target = NULL;
 
-	if (iptc_is_chain(targname, handle))
+	if (iptc_is_chain(target_name.c_str(), handle))
 	{
 		json_builder_set_member_name(builder, "type");
 		json_builder_add_string_value(builder, "chain");
@@ -304,7 +301,7 @@ add_rule(struct xtc_handle *const handle,
 	{
 		json_builder_set_member_name(builder, "type");
 		json_builder_add_string_value(builder, "builtin");
-		target = xtables_find_target(targname, XTF_TRY_LOAD);
+		target = xtables_find_target(target_name.c_str(), XTF_TRY_LOAD);
 	}
 
 #ifdef IPT_F_GOTO
@@ -318,7 +315,15 @@ add_rule(struct xtc_handle *const handle,
 	const struct xt_entry_target *t = 
 		ipt_get_target((struct ipt_entry *)fw);
 
-	if (target)
+	if (iptc_is_chain(target_name.c_str(), handle))
+	{
+		// no target data, so no options that we can't decode
+	}
+	else if (target_name == "ACCEPT" || target_name == "DROP")
+	{
+		// built-in targets with no options, nothing to decode
+	}
+	else if (target)
 	{
 		json_builder_set_member_name(builder, "error");
 		json_builder_add_string_value(builder,
@@ -357,7 +362,7 @@ list_entries(struct xtc_handle *handle, const xt_chainlabel list_chain,
 
 		json_builder_set_member_name(builder, this_chain);
 		json_builder_begin_object(builder);
-		print_header(handle, this_chain, builder);
+		add_header(handle, this_chain, builder);
 
 		json_builder_set_member_name(builder, "rules");
 		json_builder_begin_array(builder);
