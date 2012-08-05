@@ -532,9 +532,10 @@ main(int argc, char *argv[])
 	// valid JSON. Either way, we must build a well-formed response.
 	
 	json_builder_end_object(builder);
+	JsonNode * root = json_builder_get_root(builder);
 
 	JsonGenerator *gen = json_generator_new();
-	JsonNode * root = json_builder_get_root(builder);
+	json_generator_set_pretty(gen, true);
 	json_generator_set_root(gen, root);
 	gchar *str = json_generator_to_data(gen, NULL);
 
