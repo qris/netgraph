@@ -1,11 +1,24 @@
 # -*- Makefile -*-
 
 AM_CFLAGS        = ${regular_CFLAGS}
-AM_CPPFLAGS      = ${regular_CPPFLAGS} -I${top_builddir}/include -I${top_srcdir}/include ${kinclude_CPPFLAGS}
+AM_CPPFLAGS      = ${regular_CPPFLAGS} -I${top_builddir}/include \
+	-I${top_srcdir}/iptables/include \
+	${kinclude_CPPFLAGS} \
+	${JSON_GLIB_CFLAGS} ${GLIB_CFLAGS}
 
-netgraph_SOURCES  = netgraph.c
-netgraph_CFLAGS   = ${AM_CFLAGS}
-# netgraph_LDADD    = iptables/extensions/libext.a
-netgraph_LDADD    = iptables/libxtables/libxtables.la
+netgraph_server_SOURCES = netgraph-server.c
+netgraph_server_CFLAGS  = ${AM_CFLAGS}
+netgraph_server_LDADD   = iptables/libxtables/libxtables.la -lm \
+	${JSON_GLIB_LIBS} ${GLIB_LIBS}
 
-sbin_PROGRAMS    = netgraph
+if ENABLE_IPV4
+netgraph_server_CFLAGS  += -DENABLE_IPV4
+netgraph_server_LDADD   += iptables/libiptc/libip4tc.la iptables/extensions/libext4.a
+endif
+
+if ENABLE_IPV6
+netgraph_server_CFLAGS  += -DENABLE_IPV6
+netgraph_server_LDADD   += iptables/libiptc/libip6tc.la iptables/extensions/libext6.a
+endif
+
+sbin_PROGRAMS = netgraph-server
