@@ -51,6 +51,7 @@ extern "C"
 #include <cgicc/Cgicc.h>
 #include "cgicc/HTTPStatusHeader.h"
 #include "cgicc/HTTPContentHeader.h"
+#include "FCgiIO.h"
 
 using namespace cgicc;
 
@@ -422,141 +423,164 @@ main(int argc, char *argv[])
 	int http_status_code = 500;
 	
 	g_type_init();
-	
-	std::auto_ptr<Cgicc> apCgi;
-	
+
 	try
 	{
-		apCgi.reset(new Cgicc());
-	}
-	catch(std::exception& e)
-	{
-		fprintf(stderr, "Failed to initialize Cgicc: %s\n", e.what());
-		exit(1);
-	}
-
-	std::string server_string = 
-		std::string(PACKAGE_NAME "/" PACKAGE_VERSION) +
-		" (GNU cgicc/" + apCgi->getVersion() + ")";
-	std::ostream* pOut = &(std::cout);
-	bool isCommandLine = true;
-
-	// If we're a CGI, we should be ready to output JSON, whatever
-	// happens next.
-	JsonBuilder *builder = json_builder_new();
-	json_builder_begin_object(builder);
-
-	json_builder_set_member_name(builder, "protocol");
-	json_builder_add_string_value(builder, PACKAGE_NAME);
-
-	json_builder_set_member_name(builder, "app");
-	json_builder_add_string_value(builder, PACKAGE_URL);
-
-	json_builder_set_member_name(builder, "version");
-	json_builder_begin_array(builder);
-	json_builder_add_int_value(builder, 1);
-	json_builder_add_int_value(builder, 1);
-	json_builder_end_array(builder);
-	
-	try
-	{
-		std::string env = apCgi->getEnvironment().getGatewayInterface();
-	
-		if (env == "")
-		{
-			// looks like command-line usage
-			isCommandLine = true;
-		}
-		else
-		{
-			// looks like a CGI invocation
-			isCommandLine = false;
-		}
-
 		iptables_globals.program_name = argv[0];
 		int ret = xtables_init_all(&iptables_globals, NFPROTO_IPV4);
 		if (ret != 0)
 		{
 			THROW(netgraph_exception, "failed to initialize xtables");
 		}
-	
-#if defined(ALL_INCLUSIVE) || defined(NO_SHARED_LIBS)
+
+	#if defined(ALL_INCLUSIVE) || defined(NO_SHARED_LIBS)
 		init_extensions();
 		init_extensions4();
-#endif
+	#endif
 
 		xtables_load_ko(xtables_modprobe_program, false);
-		handle = iptc_init(table);
-		if (!handle)
-		{
-			THROW(netgraph_exception, "failed to initialize iptables "
-				"table '" << table << "': " << iptc_strerror(errno));
-		}
-	
-		bool success = list_entries(handle, chain, builder);
-
-		if (success)
-		{
-			// iptc_commit(handle);
-			iptc_free(handle);
-		}
-		else
-		{
-			if (errno == EINVAL) {
-				fprintf(stderr, "iptables: %s. "
-						"Run `dmesg' for more information.\n",
-					iptc_strerror(errno));
-			} else {
-				fprintf(stderr, "iptables: %s.\n",
-					iptc_strerror(errno));
-			}
-			if (errno == EAGAIN) {
-				exit(RESOURCE_PROBLEM);
-			}
-		}
-
-		http_status_code = 200; // success!
 	}
 	catch (std::exception &e)
 	{
-		if (isCommandLine)
+		// print the error message and die quickly
+		std::cerr << PACKAGE_NAME << ": " << e.what() << std::endl;
+		exit(1);
+	}
+			
+	FCGX_Request request;
+	FCGX_Init();
+	FCGX_InitRequest(&request, 0, 0);
+
+	bool fcgi_mode = (argc == 2 && strcmp(argv[1], "fastcgi") == 0);
+
+	while (!fcgi_mode || FCGX_Accept_r(&request) == 0)
+	{
+		std::auto_ptr<FCgiIO> apIO;
+		std::auto_ptr<Cgicc> apCgi;
+		std::ostream* pOut;
+	
+		try
 		{
-			// print the error message and die quickly
-			std::cerr << PACKAGE_NAME << ": " << e.what() << std::endl;
+			if (fcgi_mode)
+			{
+				apIO.reset(new FCgiIO(request));
+				apCgi.reset(new Cgicc(apIO.get()));
+				pOut = apIO.get();
+			}
+			else
+			{
+				apCgi.reset(new Cgicc());
+				pOut = &(std::cout);
+			}
+		}
+		catch(std::exception& e)
+		{
+			fprintf(stderr, "Failed to initialize Cgicc: %s\n", e.what());
 			exit(1);
 		}
-		else
+
+		bool isCommandLine = true;
+
+		// If we're a CGI, we should be ready to output JSON, whatever
+		// happens next.
+		JsonBuilder *builder = json_builder_new();
+		json_builder_begin_object(builder);
+
+		json_builder_set_member_name(builder, "protocol");
+		json_builder_add_string_value(builder, PACKAGE_NAME);
+
+		json_builder_set_member_name(builder, "app");
+		json_builder_add_string_value(builder, PACKAGE_URL);
+
+		json_builder_set_member_name(builder, "version");
+		json_builder_begin_array(builder);
+		json_builder_add_int_value(builder, 1);
+		json_builder_add_int_value(builder, 1);
+		json_builder_end_array(builder);
+	
+		try
 		{
-			// continue to render a well-formed JSON output
-			json_builder_set_member_name(builder, "error");
-			json_builder_add_string_value(builder, e.what());
+			std::string env = apCgi->getEnvironment().getGatewayInterface();
+	
+			if (env == "")
+			{
+				// looks like command-line usage
+				isCommandLine = true;
+			}
+			else
+			{
+				// looks like a CGI invocation
+				isCommandLine = false;
+			}
+
+			handle = iptc_init(table);
+			if (!handle)
+			{
+				THROW(netgraph_exception, "failed to open iptables "
+					"table '" << table << "': " << iptc_strerror(errno));
+			}
+
+			bool success = list_entries(handle, chain, builder);
+			int saved_errno = errno;
+
+			iptc_free(handle);
+
+			if (!success)
+			{
+				THROW(netgraph_exception, "iptables error: " <<
+					iptc_strerror(saved_errno));
+			}
+
+			http_status_code = 200; // success!
+		}
+		catch (std::exception &e)
+		{
+			if (isCommandLine)
+			{
+				// print the error message and die quickly
+				std::cerr << PACKAGE_NAME << ": " << e.what() << std::endl;
+				exit(1);
+			}
+			else
+			{
+				// continue to render a well-formed JSON output
+				json_builder_set_member_name(builder, "error");
+				json_builder_add_string_value(builder, e.what());
+			}
+		}
+	
+		// If we got here, we've either successfully processed the
+		// request, or we've got an error that needs to be sent as
+		// valid JSON. Either way, we must build a well-formed response.
+	
+		json_builder_end_object(builder);
+		JsonNode * root = json_builder_get_root(builder);
+
+		JsonGenerator *gen = json_generator_new();
+		json_generator_set_pretty(gen, true);
+		json_generator_set_root(gen, root);
+		gchar *str = json_generator_to_data(gen, NULL);
+
+		json_node_free(root);
+		g_object_unref(gen);
+		g_object_unref(builder);
+
+		// Tell the server not to parse our headers
+		*pOut << "Status: " << http_status_code << " "
+			<< (http_status_code == 200 ? "OK" : "Application Error")
+			<< std::endl
+			<< "Content-type: application/json"
+			<< std::endl
+			<< std::endl
+			<< str;
+		
+		if (!fcgi_mode)
+		{
+			// let's not do the loop again; there won't be another request
+			return (http_status_code == 200 ? 0 : 1);
 		}
 	}
 	
-	// If we got here, we've either successfully processed the
-	// request, or we've got an error that needs to be sent as
-	// valid JSON. Either way, we must build a well-formed response.
-	
-	json_builder_end_object(builder);
-	JsonNode * root = json_builder_get_root(builder);
-
-	JsonGenerator *gen = json_generator_new();
-	json_generator_set_pretty(gen, true);
-	json_generator_set_root(gen, root);
-	gchar *str = json_generator_to_data(gen, NULL);
-
-	json_node_free(root);
-	g_object_unref(gen);
-	g_object_unref(builder);
-
-	// Tell the server not to parse our headers
-	*pOut << "Status: " << http_status_code << " "
-		<< (http_status_code == 200 ? "OK" : "Application Error")
-		<< std::endl
-		<< "Content/type: application/json"
-		<< std::endl
-		<< std::endl
-		<< str;
-	
-	exit(http_status_code == 200 ? 0 : 1);
+	return 0;
 }
+
