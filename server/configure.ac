@@ -18,6 +18,7 @@ PKG_CHECK_MODULES([GLIB], [glib-2.0])
 PKG_CHECK_MODULES([JSON_GLIB], [json-glib-1.0])
 PKG_CHECK_MODULES([CGICC], [cgicc])
 
-AC_CONFIG_SUBDIRS([iptables server ])
+AC_CONFIG_HEADERS([config.h])
+AC_CONFIG_SUBDIRS([iptables])
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
