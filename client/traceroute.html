@@ -13,31 +13,6 @@
 	<div id="netgraph-console" style="width: 100%; min-height: 1em; background: #eee;"></div>
 
 	<script type="text/javascript">
-	var series = [], totalPoints = 60;
-	var options = {
-		series: { shadowSize: 0 }, // drawing is faster without shadows
-		// yaxis: { min: 0, max: 100 },
-		xaxis: {mode: "time"},
-	};
-    
-	function setupXaxis(xaxis)
-	{
-		xaxis.max = Date.now();
-		xaxis.min = xaxis.max - (totalPoints * 1000);
-	}    
-
-	setupXaxis(options.xaxis);    
-	var plot = $.plot($("#netgraph-graph"), series, options);
-
-	function redraw()
-	{
-		plot.setData(series);
-		setupXaxis(plot.getXAxes()[0].options);
-		// since the axes do change, we do need to call plot.setupGrid()
-		plot.setupGrid();
-		plot.draw();	
-	}
-	
 	function append(ajaxReply)
 	{
 		for (var hop in ajaxReply.hops)
@@ -92,21 +67,10 @@
 		redraw();
 	}
 	
-    function update()
-    {
-		$.ajax(
-			{
-				url: "../server/traceroute",
-			}).done(function (ajaxReply)
-			{
-				append(ajaxReply);
-			});
-    }
-    
-    update();
-
-	var timer = setInterval(update, 1000);
+	serverUrl = "../server/traceroute";
+	handlerCallback = append;
 	</script>
+	<script type="text/javascript" src="netgraph.js"></script>
 </body>
 </html>
 	
