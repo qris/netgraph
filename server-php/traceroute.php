@@ -24,7 +24,15 @@ foreach($lines as $line)
 	*/
 
 	$fields = explode(" ", $line);
-	$hop = (int) $fields[1];
+	$hop = $fields[1];
+
+	// Index from 1 instead of 0, to force json_encode to output
+	// a hash instead of (either a hash or an array, depending on
+	// whether any indexes are missing: very annoying to deal with!)
+	// see for example:
+	// print json_encode(array(0=>"a", 1=>"b"));
+	// print json_encode(array(0=>"a", 2=>"c"));
+	$hop++;
 	
 	if (!is_null($prev_hop) and $hop == $prev_hop)
 	{
@@ -56,6 +64,7 @@ $output = array(
 	"version" => array(1, 1),
 	"hops" => $hops
 	);
-	
+
+header("Content-type: application/json");
 print json_encode($output);
 ?>
