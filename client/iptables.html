@@ -1,0 +1,57 @@
+<html>
+<head>
+	<title>Netgraph</title>
+	<script type="text/javascript" src="jquery-1.8.0.js"></script>
+
+	<!--[if lt IE 9]><script language="javascript" type="text/javascript" src="jqplot/excanvas.js"></script><![endif]-->
+	<script language="javascript" type="text/javascript" src="flot/jquery.flot.js"></script>
+
+</head>
+<body>
+	<h1>Netgraph Iptables</h1>
+	<div id="netgraph-graph" style="width: 100%; height: 400px; background: #eee;"></div>
+	<div id="netgraph-console" style="width: 100%; min-height: 1em; background: #eee;"></div>
+
+	<script type="text/javascript">
+	var previousCounterValues = {};
+	
+	function iptablesParser(ajaxReply)
+	{
+		var newCounterValues = [];
+		
+		for (var chainName in ajaxReply.chains)
+		{
+			if (!ajaxReply.chains.hasOwnProperty(chainName)) continue;
+			
+			var chain = ajaxReply.chains[chainName];
+			var newValue = chain.bytes;
+			
+			if (chainName in previousCounterValues)
+			{
+				newValue -= previousCounterValues[chainName];
+			}
+			else
+			{
+				newValue = Number.NaN;
+			}
+			
+			var newCounterValue = {
+				name: chainName,
+				value: newValue,
+				label: chainName
+			};
+			
+			newCounterValues.push(newCounterValue);
+			previousCounterValues[chainName] = chain.bytes;
+		}
+		
+		return newCounterValues;
+	}
+	
+	serverUrl = "../server/iptables";
+	parserFunction = iptablesParser;
+	</script>
+	<script type="text/javascript" src="netgraph.js"></script>
+</body>
+</html>
+	
