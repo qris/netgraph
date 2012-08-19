@@ -13,8 +13,10 @@
 	<div id="netgraph-console" style="width: 100%; min-height: 1em; background: #eee;"></div>
 
 	<script type="text/javascript">
-	function append(ajaxReply)
+	function tracerouteParser(ajaxReply)
 	{
+		var newCounterValues = [];
+		
 		for (var hop in ajaxReply.hops)
 		{
 			if (!ajaxReply.hops.hasOwnProperty(hop)) continue;
@@ -23,52 +25,18 @@
 			// data from server is 1-based and string-keyed,
 			// our data is 0-based and array-indexed
 			var index = Number(hop) - 1;
-			var serie = series[index];
-			if (!serie)
-			{
-				serie = series[index] = {data: []}
-			}
-			
-			serie.label = hopInfo.host;
+			newCounterValues[index] = {
+				name: hop,
+				value: hopInfo.rtt,
+				label: hopInfo.host
+			};
 		}
 		
-		var timestamp = Date.now();
-		
-		for (var i = 0; i < series.length; i++)
-		{
-			var serie = series[i];
-			if (!serie)
-			{
-				serie = series[i] = {data: []}
-			}
-
-			var newValue;
-			// data from server is 1-based and string-keyed,
-			// our data is 0-based and array-indexed
-			var key = "" + (i + 1); 
-			
-			if (key in ajaxReply.hops)
-			{
-				newValue = ajaxReply.hops[key].rtt;
-			}
-			else
-			{
-				newValue = Number.NaN;
-			}
-			
-			var data = serie.data;
-			if (data.length > totalPoints)
-			{
-				data = data.slice(1);
-			}
-			data.push([timestamp, newValue]);
-		}
-		
-		redraw();
+		return newCounterValues;
 	}
 	
 	serverUrl = "../server/traceroute";
-	handlerCallback = append;
+	parserFunction = tracerouteParser;
 	</script>
 	<script type="text/javascript" src="netgraph.js"></script>
 </body>
