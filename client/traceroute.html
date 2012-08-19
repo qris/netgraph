@@ -1,0 +1,112 @@
+<html>
+<head>
+	<title>Netgraph</title>
+	<script type="text/javascript" src="jquery-1.8.0.js"></script>
+
+	<!--[if lt IE 9]><script language="javascript" type="text/javascript" src="jqplot/excanvas.js"></script><![endif]-->
+	<script language="javascript" type="text/javascript" src="flot/jquery.flot.js"></script>
+
+</head>
+<body>
+	<h1>Netgraph Traceroute</h1>
+	<div id="netgraph-graph" style="width: 100%; height: 400px; background: #eee;"></div>
+	<div id="netgraph-console" style="width: 100%; min-height: 1em; background: #eee;"></div>
+
+	<script type="text/javascript">
+	var series = [], totalPoints = 60;
+	var options = {
+		series: { shadowSize: 0 }, // drawing is faster without shadows
+		// yaxis: { min: 0, max: 100 },
+		xaxis: {mode: "time"},
+	};
+    
+	function setupXaxis(xaxis)
+	{
+		xaxis.max = Date.now();
+		xaxis.min = xaxis.max - (totalPoints * 1000);
+	}    
+
+	setupXaxis(options.xaxis);    
+	var plot = $.plot($("#netgraph-graph"), series, options);
+
+	function redraw()
+	{
+		plot.setData(series);
+		setupXaxis(plot.getXAxes()[0].options);
+		// since the axes do change, we do need to call plot.setupGrid()
+		plot.setupGrid();
+		plot.draw();	
+	}
+	
+	function append(ajaxReply)
+	{
+		for (var hop in ajaxReply.hops)
+		{
+			if (!ajaxReply.hops.hasOwnProperty(hop)) continue;
+
+			var hopInfo = ajaxReply.hops[hop];
+			// data from server is 1-based and string-keyed,
+			// our data is 0-based and array-indexed
+			var index = Number(hop) - 1;
+			var serie = series[index];
+			if (!serie)
+			{
+				serie = series[index] = {data: []}
+			}
+			
+			serie.label = hopInfo.host;
+		}
+		
+		var timestamp = Date.now();
+		
+		for (var i = 0; i < series.length; i++)
+		{
+			var serie = series[i];
+			if (!serie)
+			{
+				serie = series[i] = {data: []}
+			}
+
+			var newValue;
+			// data from server is 1-based and string-keyed,
+			// our data is 0-based and array-indexed
+			var key = "" + (i + 1); 
+			
+			if (key in ajaxReply.hops)
+			{
+				newValue = ajaxReply.hops[key].rtt;
+			}
+			else
+			{
+				newValue = Number.NaN;
+			}
+			
+			var data = serie.data;
+			if (data.length > totalPoints)
+			{
+				data = data.slice(1);
+			}
+			data.push([timestamp, newValue]);
+		}
+		
+		redraw();
+	}
+	
+    function update()
+    {
+		$.ajax(
+			{
+				url: "../server/traceroute",
+			}).done(function (ajaxReply)
+			{
+				append(ajaxReply);
+			});
+    }
+    
+    update();
+
+	var timer = setInterval(update, 1000);
+	</script>
+</body>
+</html>
+	
