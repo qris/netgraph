@@ -4,9 +4,7 @@
 	<script type="text/javascript" src="jquery-1.8.0.js"></script>
 
 	<!--[if lt IE 9]><script language="javascript" type="text/javascript" src="jqplot/excanvas.js"></script><![endif]-->
-	<script language="javascript" type="text/javascript" src="jqplot/jquery.jqplot.js"></script>
-	<script type="text/javascript" language="javascript" src="jqplot/plugins/jqplot.dateAxisRenderer.js"></script>
-	<link rel="stylesheet" type="text/css" href="jqplot/jquery.jqplot.css" />
+	<script language="javascript" type="text/javascript" src="flot/jquery.flot.js"></script>
 
 </head>
 <body>
@@ -15,45 +13,78 @@
 	<div id="netgraph-console" style="width: 100%; min-height: 1em; background: #eee;"></div>
 
 	<script type="text/javascript">
-	$.jqplot.config.enablePlugins = true;
-	var plot = $.jqplot('netgraph-graph',
-		[[[new Date(), 0]]],
-		{axes:{xaxis:{renderer:$.jqplot.DateAxisRenderer}}}
-		);
-	var previousData = {};
-	function updateGraph()
+	var data = [[new Date(), 0]], totalPoints = 60;
+	data[0][2] = data[0][0].getTime();
+	var options = {
+		series: { shadowSize: 0 }, // drawing is faster without shadows
+		// yaxis: { min: 0, max: 100 },
+		xaxis: {mode: "time"},
+	};
+    
+	function setupXaxis(xaxis)
 	{
+		xaxis.max = data[data.length - 1][2];
+		xaxis.min = xaxis.max - (totalPoints * 1000);
+	}    
+
+	setupXaxis(options.xaxis);    
+	var plot = $.plot($("#netgraph-graph"), [data], options);
+
+	function redraw()
+	{
+		plot.setData([data]);
+		setupXaxis(plot.getXAxes()[0].options);
+		// since the axes do change, we do need to call plot.setupGrid()
+		plot.setupGrid();
+		plot.draw();	
+	}
+	
+	var previousData = {};
+	
+	function append(ajaxReply)
+	{
+		var newData = {INPUT: ajaxReply.chains.INPUT.bytes};
+		
+		// convert to difference from previous value
+		for (var chain in newData)
+		{
+			if (!newData.hasOwnProperty(chain)) continue;
+
+			var newValue = newData[chain];
+			
+			if (chain in previousData)
+			{
+				newValue -= previousData[chain];
+			}
+			else
+			{
+				newValue = 0; // not a huge positive number of old bytes!
+			}
+			
+			previousData[chain] = newData[chain];
+			newData[chain] = newValue;
+		}
+		
+		var now = new Date();
+		data.push([now, newData.INPUT, now.getTime()]);
+		redraw();
+	}
+	
+    function update()
+    {
 		$.ajax(
 			{
 				url: "../server/",
-			}).done(function (data)
+			}).done(function (ajaxReply)
 			{
-				var newData = {INPUT: data.chains.INPUT.bytes};
-				
-				// convert to difference from previous value
-				for (var chain in newData)
-				{
-					if (!newData.hasOwnProperty(chain)) continue;
-					
-					if (chain in previousData)
-					{
-						newData[chain] -= previousData[chain];
-					}
-					else
-					{
-						newData[chain] = 0;
-					}
-					
-					previousData[chain] = newData[chain];
-				}
-				
-				plot.data[0].push([new Date(), newData.INPUT]);
-				plot.replot({data: plot.data, resetAxes: true});
+				append(ajaxReply);
 			});
-	}
-	setInterval(updateGraph, 1000);
-	</script>
+    }
+    
+    update();
 
+	var timer = setInterval(update, 1000);
+	</script>
 </body>
 </html>
 	
