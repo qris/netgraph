@@ -1,4 +1,5 @@
-var series = [], seriesByName = {}, totalPoints = 60;
+var allSeries = [], seriesByName = {}, visibleSeries = [];
+var totalPoints = 60;
 var options = {
 	series: {
 		lines: { show: true },
@@ -16,14 +17,14 @@ function setupXaxis(xaxis)
 {
 	xaxis.max = Date.now();
 	xaxis.min = xaxis.max - (totalPoints * 1000);
-}    
+}
 
 setupXaxis(options.xaxis);    
-var plot = $.plot($("#netgraph-graph"), series, options);
+var plot = $.plot($("#netgraph-graph"), allSeries, options);
 
 function redraw()
 {
-	plot.setData(series);
+	plot.setData(visibleSeries);
 	setupXaxis(plot.getXAxes()[0].options);
 	// since the axes do change, we do need to call plot.setupGrid()
 	plot.setupGrid();
@@ -57,6 +58,18 @@ function update()
 
 var parserFunction;
 
+function getOrCreateSeries(name, index)
+{
+	var serie = seriesByName[name];
+	if (!serie)
+	{
+		serie = {name: name, data: []};
+		allSeries.splice(index, 0, serie);
+		seriesByName[name] = serie;
+	}
+	return serie;
+}
+
 function defaultHandler(ajaxReply)
 {
 	var newCounterValues = parserFunction(ajaxReply);
@@ -70,25 +83,17 @@ function defaultHandler(ajaxReply)
 		if (counterValue)
 		{
 			newCountersByName[counterValue.name] = counterValue;
-		
-			var serie = seriesByName[counterValue.name];
-			if (!serie)
-			{
-				serie = {name: counterValue.name, data: []};
-				series.splice(i, 0, serie);
-				seriesByName[counterValue.name] = serie;
-			}
-		
+			var serie = getOrCreateSeries(counterValue.name, i);
 			serie.label = counterValue.label;
 		}
 	}
 	
-	for (var i = 0; i < series.length; i++)
+	for (var i = 0; i < allSeries.length; i++)
 	{
-		var serie = series[i];
+		var serie = allSeries[i];
 		if (!serie)
 		{
-			serie = series[i] = {data: []};
+			serie = allSeries[i] = {data: []};
 		}
 
 		var newValue;

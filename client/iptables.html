@@ -9,11 +9,75 @@
 </head>
 <body>
 	<h1>Netgraph Iptables</h1>
+	<p>
+		<label for="chain">Select chain:</label>
+		<select id="select-chain">
+			<option value="">All Chains</option>
+		</select>
+	</p>
 	<div id="netgraph-graph" style="width: 100%; height: 400px; background: #eee;"></div>
 	<div id="netgraph-console" style="width: 100%; min-height: 1em; background: #eee;"></div>
 
 	<script type="text/javascript">
+	var chainSeries = [];
+	chainSeries.byName = {};
+	
+	$('#select-chain').click(
+		function(event)
+		{
+			var selectedChain = $(this).val();
+			if (selectedChain == "")
+			{
+				visibleSeries = chainSeries;
+			}
+			else
+			{
+				var chainSerie = chainSeries.byName[selectedChain];
+				visibleSeries = jQuery.extend([], chainSerie.ruleSeries);
+				visibleSeries.push(chainSerie);
+			}
+		});
+	
 	var previousCounterValues = {};
+
+	function absoluteToRelativeValue(name, absoluteValue)
+	{
+		var relativeValue;
+		
+		if (name in previousCounterValues)
+		{
+			relativeValue = absoluteValue -
+				previousCounterValues[name];
+		}
+		else
+		{
+			relativeValue = Number.NaN;
+		}
+		
+		previousCounterValues[name] = absoluteValue;
+		return relativeValue;
+	}
+	
+	function Counter(name, value, label)
+	{
+		this.name = name;
+		this.value = value;
+		this.label = label;
+	}
+
+	function DeriveCounter(name, absoluteValue, label)
+	{
+		this.name = name;
+		this.value = absoluteToRelativeValue(name, absoluteValue);
+		this.label = label;
+	}
+	
+	function ruleLabel(rule)
+	{
+		return rule.proto + " " + rule.src + "(" + rule.inif + ")" +
+			" -> " + rule.dst + "(" + rule.outif + ") " + 
+			rule.match_and_target_opts;
+	}
 	
 	function iptablesParser(ajaxReply)
 	{
@@ -24,25 +88,57 @@
 			if (!ajaxReply.chains.hasOwnProperty(chainName)) continue;
 			
 			var chain = ajaxReply.chains[chainName];
-			var newValue = chain.bytes;
 			
-			if (chainName in previousCounterValues)
+			var counter = new DeriveCounter(chainName, chain.bytes,
+				chainName);
+			newCounterValues.push(counter);
+			
+			var chainSerie;
+			if (chainName in chainSeries.byName)
 			{
-				newValue -= previousCounterValues[chainName];
+				chainSerie = chainSeries.byName[chainName];
 			}
 			else
 			{
-				newValue = Number.NaN;
+				chainSerie = chainSeries.byName[chainName] = 
+					getOrCreateSeries(chainName, newCounterValues.length);
+				chainSeries.push(chainSerie);
+				var newOption = document.createElement('option');
+				$(newOption).attr('value', chainName).text(chainName);
+				$('#select-chain').append(newOption);
 			}
-			
-			var newCounterValue = {
-				name: chainName,
-				value: newValue,
-				label: chainName
-			};
-			
-			newCounterValues.push(newCounterValue);
-			previousCounterValues[chainName] = chain.bytes;
+
+			var ruleSeries;
+			if ("ruleSeries" in chainSerie)
+			{
+				ruleSeries = chainSerie.ruleSeries;
+			}
+			else
+			{
+				ruleSeries = chainSerie.ruleSeries = [];
+				ruleSeries.byName = {};
+			}
+
+			for (var i = 0; i < chain.rules.length; i++)
+			{
+				var rule = chain.rules[i];
+				var counter = new DeriveCounter(chainName + ":" + i,
+					rule.bytes, ruleLabel(rule));
+				newCounterValues.push(counter);
+
+				var serie = getOrCreateSeries(counter.name);
+				serie.label = counter.label;
+				
+				if (serie.name in ruleSeries.byName)
+				{
+					serie = ruleSeries.byName[serie.name];
+				}
+				else
+				{
+					ruleSeries.splice(i, 0, serie);
+					ruleSeries.byName[serie.name] = serie;
+				}
+			}
 		}
 		
 		return newCounterValues;
@@ -52,6 +148,9 @@
 	parserFunction = iptablesParser;
 	</script>
 	<script type="text/javascript" src="netgraph.js"></script>
+	<script type="text/javascript">
+	visibleSeries = chainSeries;
+	</script>
 </body>
 </html>
 	
