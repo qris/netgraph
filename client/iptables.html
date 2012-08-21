@@ -38,45 +38,11 @@
 			}
 		});
 	
-	var previousCounterValues = {};
-
-	function absoluteToRelativeValue(name, absoluteValue)
-	{
-		var relativeValue;
-		
-		if (name in previousCounterValues)
-		{
-			relativeValue = absoluteValue -
-				previousCounterValues[name];
-		}
-		else
-		{
-			relativeValue = Number.NaN;
-		}
-		
-		previousCounterValues[name] = absoluteValue;
-		return relativeValue;
-	}
-	
-	function Counter(name, value, label)
-	{
-		this.name = name;
-		this.value = value;
-		this.label = label;
-	}
-
-	function DeriveCounter(name, absoluteValue, label)
-	{
-		this.name = name;
-		this.value = absoluteToRelativeValue(name, absoluteValue);
-		this.label = label;
-	}
-	
 	function ruleLabel(rule)
 	{
-		return rule.proto + " " + rule.src + "(" + rule.inif + ")" +
+		return rule.target + " " + rule.src + "(" + rule.inif + ")" +
 			" -> " + rule.dst + "(" + rule.outif + ") " + 
-			rule.match_and_target_opts;
+			rule.proto + " " + rule.match_and_target_opts;
 	}
 	
 	function iptablesParser(ajaxReply)

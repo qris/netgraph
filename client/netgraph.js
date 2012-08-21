@@ -70,6 +70,40 @@ function getOrCreateSeries(name, index)
 	return serie;
 }
 
+var previousCounterValues = {};
+
+function absoluteToRelativeValue(name, absoluteValue)
+{
+	var relativeValue;
+	
+	if (name in previousCounterValues)
+	{
+		relativeValue = absoluteValue -
+			previousCounterValues[name];
+	}
+	else
+	{
+		relativeValue = Number.NaN;
+	}
+	
+	previousCounterValues[name] = absoluteValue;
+	return relativeValue;
+}
+
+function Counter(name, value, label)
+{
+	this.name = name;
+	this.value = value;
+	this.label = label;
+}
+
+function DeriveCounter(name, absoluteValue, label)
+{
+	this.name = name;
+	this.value = absoluteToRelativeValue(name, absoluteValue);
+	this.label = label;
+}
+
 function defaultHandler(ajaxReply)
 {
 	var newCounterValues = parserFunction(ajaxReply);
