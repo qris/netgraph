@@ -66,17 +66,21 @@ function defaultHandler(ajaxReply)
 	for (var i = 0; i < newCounterValues.length; i++)
 	{
 		var counterValue = newCounterValues[i];
-		newCountersByName[counterValue.name] = counterValue;
 		
-		var serie = seriesByName[counterValue.name];
-		if (!serie)
+		if (counterValue)
 		{
-			serie = {name: counterValue.name, data: []};
-			series.splice(i, 0, serie);
-			seriesByName[counterValue.name] = serie;
-		}
+			newCountersByName[counterValue.name] = counterValue;
 		
-		serie.label = counterValue.label;
+			var serie = seriesByName[counterValue.name];
+			if (!serie)
+			{
+				serie = {name: counterValue.name, data: []};
+				series.splice(i, 0, serie);
+				seriesByName[counterValue.name] = serie;
+			}
+		
+			serie.label = counterValue.label;
+		}
 	}
 	
 	for (var i = 0; i < series.length; i++)
