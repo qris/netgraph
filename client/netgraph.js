@@ -1,4 +1,7 @@
-var allSeries = [], seriesByName = {}, visibleSeries = [];
+var allSeries = [], seriesByName = {}, visibleSeries;
+
+visibleSeries = visibleSeries || allSeries;
+
 var totalPoints = 60;
 var options = {
 	series: {
@@ -22,16 +25,41 @@ function setupXaxis(xaxis)
 setupXaxis(options.xaxis);    
 var plot = $.plot($("#netgraph-graph"), allSeries, options);
 
+function defaultPostProcessSeries(seriesIn)
+{
+	// exclude series with no data at all by renumbering
+	var seriesToPlot = [];
+	for (var i = 0; i < seriesIn.length; i++)
+	{
+		var serie = seriesIn[i];
+		if (serie)
+		{
+			var flotSeries = serie.data;
+			seriesToPlot.push(flotSeries);
+		}
+	}
+	return seriesToPlot;
+}
+
+var postProcessSeriesFunction = defaultPostProcessSeries;
+
 function redraw()
 {
-	plot.setData(visibleSeries);
+	plot.setData(postProcessSeriesFunction(visibleSeries));
 	setupXaxis(plot.getXAxes()[0].options);
 	// since the axes do change, we do need to call plot.setupGrid()
 	plot.setupGrid();
 	plot.draw();	
 }
 
-var serverUrl, handlerCallback, nextQueryTime;
+var serverUrl;
+
+function defaultUrlFunction()
+{
+	return serverUrl;
+}
+
+var urlFunction = defaultUrlFunction, handlerCallback, nextQueryTime;
 
 function update()
 {
@@ -39,7 +67,7 @@ function update()
 	
 	$.ajax(
 		{
-			url: serverUrl,
+			url: urlFunction(),
 		}).done(function (ajaxReply)
 		{
 			handlerCallback(ajaxReply);
@@ -60,11 +88,21 @@ var parserFunction;
 
 function getOrCreateSeries(name, index)
 {
-	var serie = seriesByName[name];
+	var serie;
+	
+	if (name)
+	{
+		serie = seriesByName[name];
+	}
+	else
+	{
+		serie = allSeries[index];
+	}
+	
 	if (!serie)
 	{
-		serie = {name: name, data: []};
-		allSeries.splice(index, 0, serie);
+		serie = {name: name, data: [], total: 0};
+		allSeries[index]   = serie;
 		seriesByName[name] = serie;
 	}
 	return serie;
@@ -106,49 +144,57 @@ function DeriveCounter(name, absoluteValue, label)
 
 function defaultHandler(ajaxReply)
 {
-	var newCounterValues = parserFunction(ajaxReply);
+	var counters = parserFunction(ajaxReply);
 	var newCountersByName = {};
 	var timestamp = Date.now();
 
-	for (var i = 0; i < newCounterValues.length; i++)
+	for (var i = 0; i < counters.length; i++)
 	{
-		var counterValue = newCounterValues[i];
+		var counter = counters[i];
 		
-		if (counterValue)
+		if (counter)
 		{
-			newCountersByName[counterValue.name] = counterValue;
-			var serie = getOrCreateSeries(counterValue.name, i);
-			serie.label = counterValue.label;
+			var countersWithThisName = newCountersByName[counter.name];
+			if (!countersWithThisName)
+			{
+				countersWithThisName = newCountersByName[counter.name] = [];
+			}
+			countersWithThisName.push(counter);
+			
+			var serie = getOrCreateSeries(counter.name, i);
+			counter.serie = serie;
+			countersWithThisName = null;
 		}
 	}
 	
 	for (var i = 0; i < allSeries.length; i++)
 	{
 		var serie = allSeries[i];
-		if (!serie)
+		if (serie)
 		{
-			serie = allSeries[i] = {data: []};
+			var newValue = Number.NaN;
+			
+			var counters = newCountersByName[serie.name];
+			if (counters)
+			{
+				newValue = 0;
+				for (var j = 0; j < counters.length; j++)
+				{
+					newValue += counters[j].value;
+				}
+				serie.counters = counters;
+				serie.total += newValue;
+				serie.label = counters[0].label;
+			}
+			
+			if (serie.data.length >= totalPoints)
+			{
+				serie.total -= serie.data[0];
+				serie.data = serie.data.slice(1);
+			}
+			
+			serie.data.push([timestamp, newValue]);
 		}
-
-		var newValue;
-		
-		if (serie.name in newCountersByName)
-		{
-			newValue = newCountersByName[serie.name].value;
-		}
-		else
-		{
-			newValue = Number.NaN;
-		}
-		
-		var data = serie.data;
-		
-		if (data.length > totalPoints)
-		{
-			data = data.slice(1);
-		}
-		
-		data.push([timestamp, newValue]);
 	}
 	
 	redraw();
@@ -156,4 +202,4 @@ function defaultHandler(ajaxReply)
 
 handlerCallback = defaultHandler;
 
-update();
+$(document).ready(update);
