@@ -27,7 +27,7 @@
 			var index = Number(hop) - 1;
 			newCounterValues[index] = {
 				name: hop,
-				value: Number(hopInfo.rtt),
+				value: Number(hopInfo.rtt) / 1000,
 				label: hopInfo.host
 			};
 		}

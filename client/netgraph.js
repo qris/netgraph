@@ -6,7 +6,7 @@ var totalPoints = 60;
 var options = {
 	series: {
 		lines: { show: true },
-		points: { show: true },
+		points: { show: false },
 		shadowSize: 0 // drawing is faster without shadows
 	},
 	xaxis: { mode: "time" },
@@ -34,7 +34,10 @@ function defaultPostProcessSeries(seriesIn)
 		var serie = seriesIn[i];
 		if (serie)
 		{
-			var flotSeries = serie.data;
+			var flotSeries = {
+				data: serie.data,
+				label: serie.label
+			};
 			seriesToPlot.push(flotSeries);
 		}
 	}
@@ -170,21 +173,22 @@ function defaultHandler(ajaxReply)
 	for (var i = 0; i < allSeries.length; i++)
 	{
 		var serie = allSeries[i];
+		
 		if (serie)
 		{
+			var countersForThisSerie = newCountersByName[serie.name];
 			var newValue = Number.NaN;
 			
-			var counters = newCountersByName[serie.name];
-			if (counters)
+			if (countersForThisSerie)
 			{
 				newValue = 0;
-				for (var j = 0; j < counters.length; j++)
+				for (var j = 0; j < countersForThisSerie.length; j++)
 				{
-					newValue += counters[j].value;
+					newValue += countersForThisSerie[j].value;
 				}
-				serie.counters = counters;
+				serie.counters = countersForThisSerie;
 				serie.total += newValue;
-				serie.label = counters[0].label;
+				serie.label = countersForThisSerie[0].label;
 			}
 			
 			if (serie.data.length >= totalPoints)
